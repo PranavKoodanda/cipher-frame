@@ -43,10 +43,27 @@ embedded data.
   channel counts, channel ratios, mean squared error (MSE), and peak
   signal-to-noise ratio (PSNR).
 - Includes a React/Vite interface with drag-and-drop file selection, PNG
-  preview, method selection, password visibility controls, API status,
-  validation and API error feedback, loading states, downloadable outputs, and
-  a subtle footer linking to the creator's GitHub profile.
-- Provides FastAPI endpoints for health checks, hiding, and recovery.
+  preview, method selection, visible password labels and dark autofill/focus
+  states, API status, validation and API error feedback, loading states, clear
+  success/download actions, and an optional generated-image handoff to Decode.
+- Provides FastAPI endpoints for health checks, hiding, recovery, and exact
+  decoded-pixel analysis.
+- Returns measured backend stage timings and workflow metadata in the
+  `X-Workflow-Timings` response header while preserving binary PNG/WAV
+  responses. The frontend keeps encoding and decoding measurements separately.
+- Provides a responsive four-panel workbench with independent task and results
+  columns. Forms remain compact without equal-height stretching, while the
+  wider analysis column provides summary-first RGB/red/green/blue/grayscale
+  histograms, accurate axes and legends, a collapsed-by-default difference
+  map, synchronized cover/stego pixel inspection, exact RGBA statistics, and
+  decoded-pixel SHA-256 hashes. Empty and unavailable analysis controls remain
+  visibly disabled until a comparison exists.
+- Uses a compact glanceable workbench layout: Encode and Decode actions stay
+  together in the task rail, while comparison summary metrics, visual analysis,
+  and separate encode/decode timing summaries occupy the results rail. The
+  comparison summary reports exact pixel equality or change status, changed
+  pixel percentage, MSE, and PSNR; it is an image-quality indicator, not proof
+  of steganographic undetectability.
 - Limits each uploaded WAV and PNG file to 20 MiB by default and reads uploads
   incrementally before workflow processing.
 
@@ -80,6 +97,22 @@ flowchart LR
 Neither method guarantees that hidden data is undetectable or resistant to
 steganalysis. The encrypted envelope remains the security boundary for
 confidentiality and tamper detection.
+
+## Analysis and performance measurements
+
+The workbench compares the cover and generated stego image using actual
+decoded RGBA values. It can display side-by-side percentage histograms, a
+difference view, selected pixel values, a bounded spatial difference map,
+changed-pixel statistics, MSE, PSNR, and hashes of decoded pixel buffers.
+Identical decoded buffers produce zero MSE and infinite PSNR. These are
+image-quality indicators, not proof of security or undetectability.
+
+The backend measures validation, Scrypt, AES-GCM, extraction/embedding, and
+total processing stages with `time.perf_counter()`. The browser measures
+operation duration with `performance.now()`. The workbench presents server
+processing and total browser elapsed time as separate summaries; they are not
+added together. Timing metadata is exposed through CORS in
+`X-Workflow-Timings`; the endpoint response bodies remain binary files.
 
 ## Technology stack
 
@@ -130,12 +163,14 @@ confidentiality and tamper detection.
 │   │   │   └── lsb.py              # RGB/RGBA LSB embedding
 │   │   └── utils/
 │   │       ├── hashing.py          # SHA-256 helpers
-│   │       └── image_metrics.py    # MSE, PSNR, and channel metrics
+│   │       ├── image_metrics.py    # MSE, PSNR, and channel metrics
+│   │       └── pixel_analysis.py   # Exact RGBA comparison and visual data
 │   ├── tests/
 │   │   ├── test_api.py
 │   │   ├── test_crypto.py
 │   │   ├── test_lsb.py
 │   │   ├── test_png_chunk.py
+│   │   ├── test_pixel_analysis.py
 │   │   └── test_workflow.py
 │   ├── README.md
 │   └── requirements.txt
@@ -167,12 +202,13 @@ From the repository root in Windows PowerShell:
 ```powershell
 python -m venv backend\.venv
 .\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-.\backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+.\backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 9000
 ```
 
-The API listens on the Uvicorn default `http://127.0.0.1:8000`. FastAPI's
+The frontend's Vite proxy is configured for
+`http://127.0.0.1:9000`. FastAPI's
 interactive documentation is available at
-`http://127.0.0.1:8000/docs`.
+`http://127.0.0.1:9000/docs`.
 
 The API accepts browser requests from the deployed frontend
 (`https://audio-image-steganography.vercel.app`) and the Vite development
@@ -192,7 +228,7 @@ npm run dev
 
 Vite serves the frontend at its default URL,
 `http://localhost:5173`. The Vite development server proxies relative `/api`
-requests to `http://127.0.0.1:8000`.
+requests to `http://127.0.0.1:9000`.
 
 For deployments or a different backend location, set `VITE_API_BASE_URL` in
 `frontend\.env`:
@@ -243,6 +279,16 @@ Multipart fields:
 
 Returns HTTP `200` with `audio/wav` and a downloadable `recovered.wav`.
 
+### `POST /api/analyze`
+
+Multipart fields are `original` and `stego` PNG files. Optional form fields
+`region_x`, `region_y`, and `region_size` select an 8 × 8, 16 × 16, or 32 × 32
+region. The endpoint compares canonical RGBA buffers without compositing
+transparent pixels and returns exact integrity statistics, percentage
+histograms, selected region values, and a bounded difference map. It returns
+`400` for invalid PNGs or invalid region coordinates; mismatched image
+dimensions are reported as unavailable for exact comparison.
+
 ### Error responses
 
 - `400 Bad Request`: invalid WAV/PNG data, malformed payloads, unsupported
@@ -270,9 +316,9 @@ cd frontend
 npm run build
 ```
 
-The last verified results were **45 passing backend tests** and a successful
-frontend production build. These are recorded results, not a guarantee for
-future changes.
+The last verified results were **51 passing backend tests**, with one existing
+Starlette multipart deprecation warning, and a successful frontend production
+build. These are recorded results, not a guarantee for future changes.
 
 ## Security notes and limitations
 

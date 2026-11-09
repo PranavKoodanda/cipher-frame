@@ -11,6 +11,7 @@ async function readError(response) {
 }
 
 async function request(path, formData) {
+  const requestStarted = performance.now();
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -24,7 +25,28 @@ async function request(path, formData) {
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  return response.blob();
+  const headersReceived = performance.now();
+  const blob = await response.blob();
+  const bodyCompleted = performance.now();
+  let server = null;
+  try {
+    const timingHeader = response.headers.get("X-Workflow-Timings");
+    server = timingHeader ? JSON.parse(timingHeader) : null;
+  } catch {
+    throw new Error("The API returned invalid timing metadata.");
+  }
+  if (!server?.timings || !server?.metadata) {
+    throw new Error("The API did not return workflow timing metadata.");
+  }
+  return {
+    blob,
+    server,
+    frontend: {
+      requestToHeadersMs: headersReceived - requestStarted,
+      requestDurationMs: bodyCompleted - requestStarted,
+      responseTransferMs: bodyCompleted - headersReceived,
+    },
+  };
 }
 
 export async function checkHealth() {
@@ -51,4 +73,16 @@ export function recoverAudio({ image, password, method }) {
   formData.append("password", password);
   formData.append("method", method);
   return request("/api/recover", formData);
+}
+
+export async function analyzeImages({ original, stego, x, y, size }) {
+  const formData = new FormData();
+  formData.append("original", original);
+  formData.append("stego", stego);
+  formData.append("region_x", String(x));
+  formData.append("region_y", String(y));
+  formData.append("region_size", String(size));
+  const response = await fetch(`${API_BASE_URL}/api/analyze`, { method: "POST", body: formData });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
 }

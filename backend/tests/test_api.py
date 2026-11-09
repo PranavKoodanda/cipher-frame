@@ -1,4 +1,5 @@
 import asyncio
+import json
 from io import BytesIO
 import wave
 
@@ -46,6 +47,18 @@ def test_hide_and_recover_endpoints_round_trip(method: str) -> None:
     assert hide_response.status_code == 200
     assert hide_response.headers["content-type"] == "image/png"
     assert 'filename="stego.png"' in hide_response.headers["content-disposition"]
+    hide_timings = json.loads(hide_response.headers["x-workflow-timings"])
+    assert set(
+        [
+            "file_validation_ms",
+            "scrypt_key_derivation_ms",
+            "aes_gcm_encryption_ms",
+            "payload_embedding_ms",
+            "backend_processing_ms",
+        ]
+    ) <= hide_timings["timings"].keys()
+    assert all(value >= 0 for value in hide_timings["timings"].values())
+    assert hide_timings["metadata"]["method"] == method
 
     recover_response = client.post(
         "/api/recover",
@@ -56,6 +69,19 @@ def test_hide_and_recover_endpoints_round_trip(method: str) -> None:
     assert recover_response.status_code == 200
     assert recover_response.headers["content-type"] == "audio/wav"
     assert 'filename="recovered.wav"' in recover_response.headers["content-disposition"]
+    recover_timings = json.loads(recover_response.headers["x-workflow-timings"])
+    assert set(
+        [
+            "png_validation_ms",
+            "payload_extraction_ms",
+            "scrypt_key_derivation_ms",
+            "aes_gcm_decryption_ms",
+            "wav_validation_ms",
+            "backend_processing_ms",
+        ]
+    ) <= recover_timings["timings"].keys()
+    assert all(value >= 0 for value in recover_timings["timings"].values())
+    assert recover_timings["metadata"]["method"] == method
     assert recover_response.content == _wav()
 
 
@@ -64,6 +90,42 @@ def test_health_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_analyze_endpoint_returns_exact_pixel_statistics() -> None:
+    cover = _png((16, 16))
+    response = client.post(
+        "/api/analyze",
+        files={
+            "original": ("cover.png", cover, "image/png"),
+            "stego": ("stego.png", cover, "image/png"),
+        },
+        data={"region_x": "0", "region_y": "0", "region_size": "8"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dimensions_match"] is True
+    assert body["pixel_equal"] is True
+    assert body["mse"] == 0
+    assert body["difference_map"]["width"] == 16
+    assert body["difference_map"]["height"] == 16
+    assert body["region"]["size"] == 8
+
+
+def test_analyze_endpoint_rejects_invalid_region() -> None:
+    image = _png((16, 16))
+    response = client.post(
+        "/api/analyze",
+        files={
+            "original": ("cover.png", image, "image/png"),
+            "stego": ("stego.png", image, "image/png"),
+        },
+        data={"region_x": "12", "region_y": "0", "region_size": "8"},
+    )
+
+    assert response.status_code == 400
+    assert "outside image dimensions" in response.json()["detail"]
 
 
 def test_hide_rejects_missing_fields() -> None:
