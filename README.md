@@ -1,9 +1,13 @@
-# Audio / Image Steganography
+# CIPHER FRAME
+
+**Secure Audio-in-Image Steganography Workstation**
+
+**Repository:** [github.com/PranavKoodanda/cipher-frame](https://github.com/PranavKoodanda/cipher-frame)
 
 🌐 **Live Demo:** [Try it here](https://audio-image-steganography.vercel.app/)
 
-Audio / Image Steganography is a full-stack application for encrypting a WAV
-file and hiding the encrypted payload inside a PNG image. Combining
+Cipher Frame is a full-stack application for encrypting a WAV file and hiding
+the encrypted payload inside a PNG image. Combining
 authenticated encryption with steganography protects the audio contents while
 providing a practical image-based carrier; recovery still requires the correct
 password and embedding method.
@@ -17,13 +21,13 @@ embedded data.
 ### Hide Audio
 
 <p>
-  <img src="docs/screenshots/hide-audio.png" alt="Audio / Image Steganography Hide Audio interface" width="900">
+  <img src="docs/screenshots/hide-audio.png" alt="Cipher Frame hide audio interface" width="900">
 </p>
 
 ### Recover Audio
 
 <p>
-  <img src="docs/screenshots/recover-audio.png" alt="Audio / Image Steganography Recover Audio interface" width="900">
+  <img src="docs/screenshots/recover-audio.png" alt="Cipher Frame recover audio interface" width="900">
 </p>
 
 ## Features

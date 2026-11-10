@@ -1,6 +1,8 @@
-# Audio-in-Image Steganography Backend
+# Cipher Frame Backend
 
-The root [`README.md`](../README.md) is the primary project documentation.
+Cipher Frame is the secure audio-in-image steganography workstation. The root
+[`README.md`](../README.md) is the primary project documentation; the official
+repository is [github.com/PranavKoodanda/cipher-frame](https://github.com/PranavKoodanda/cipher-frame).
 This file contains backend-specific implementation notes and setup commands.
 
 The current backend provides the encrypted payload foundation, direct PNG
