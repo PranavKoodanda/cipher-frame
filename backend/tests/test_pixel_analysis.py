@@ -41,6 +41,23 @@ def test_changed_rgba_pixel_is_reported_with_actual_statistics() -> None:
     assert result["region"]["stego"][0][1] == [11, 20, 28, 255]
 
 
+def test_one_channel_increment_produces_actual_difference_of_one_at_its_location() -> None:
+    first = Image.new("RGB", (16, 16), (120, 85, 200))
+    second = first.copy()
+    second.putpixel((7, 9), (121, 85, 200))
+    original_bytes = BytesIO()
+    stego_bytes = BytesIO()
+    first.save(original_bytes, format="PNG")
+    second.save(stego_bytes, format="PNG")
+
+    result = compare_png_pixels(original_bytes.getvalue(), stego_bytes.getvalue())
+
+    assert result["max_channel_difference"] == 1
+    assert result["changed_pixel_count"] == 1
+    assert result["difference_map"]["values"][9][7] == 1
+    assert sum(map(sum, result["difference_map"]["values"])) == 1
+
+
 def test_dimension_mismatch_and_invalid_region_are_safe() -> None:
     result = compare_png_pixels(_png((2, 2)), _png((3, 2)))
     assert result["dimensions_match"] is False
