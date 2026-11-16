@@ -1,12 +1,14 @@
 """End-to-end WAV-in-PNG encryption and steganography workflows."""
 
 from collections.abc import Buffer
+from dataclasses import dataclass
 from io import BytesIO
+from time import perf_counter
 import wave
 
 from PIL import Image, UnidentifiedImageError
 
-from backend.app.core.crypto import decrypt, encrypt
+from backend.app.core.crypto import decrypt, decrypt_timed, encrypt, encrypt_timed
 from backend.app.stego.lsb import extract_lsb, embed_lsb
 from backend.app.stego.png_chunk import embed_payload, extract_payload
 
@@ -27,6 +29,15 @@ class InvalidWAVError(WorkflowError):
 
 class InvalidPNGError(WorkflowError):
     """Raised when a PNG cannot be decoded or validated."""
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowResult:
+    """Binary workflow output plus measured backend stages and metadata."""
+
+    data: bytes
+    timings: dict[str, float]
+    metadata: dict[str, object]
 
 
 def _require_method(method: str) -> str:
@@ -91,37 +102,104 @@ def hide_wav_in_png(
     method: str,
 ) -> bytes:
     """Encrypt WAV bytes and embed the authenticated envelope in a PNG."""
+    return hide_wav_in_png_timed(wav_data, png, password, method).data
+
+
+def hide_wav_in_png_timed(
+    wav_data: Buffer,
+    png: Buffer,
+    password: str,
+    method: str,
+) -> WorkflowResult:
+    """Run hide workflow once and return output with measured backend stages."""
+    total_started = perf_counter()
     selected_method = _require_method(method)
     raw_wav = _require_bytes(wav_data, "wav_data")
     raw_png = _require_bytes(png, "png")
+    validation_started = perf_counter()
     _validate_wav(raw_wav)
     _validate_png(raw_png)
+    validation_ms = (perf_counter() - validation_started) * 1000
 
-    encrypted = encrypt(raw_wav, password)
+    encrypted, scrypt_ms, aes_ms = encrypt_timed(raw_wav, password)
+    embedding_started = perf_counter()
     if selected_method == "chunk":
-        return embed_payload(raw_png, encrypted)
-
-    try:
-        with Image.open(BytesIO(raw_png)) as image:
-            embedded = embed_lsb(image, encrypted)
-            output = BytesIO()
-            embedded.save(output, format="PNG")
-            return output.getvalue()
-    except OSError as error:
-        raise InvalidPNGError("PNG cannot store the encrypted WAV envelope") from error
+        stego_png = embed_payload(raw_png, encrypted)
+    else:
+        try:
+            with Image.open(BytesIO(raw_png)) as image:
+                embedded = embed_lsb(image, encrypted)
+                output = BytesIO()
+                embedded.save(output, format="PNG")
+                stego_png = output.getvalue()
+        except OSError as error:
+            raise InvalidPNGError("PNG cannot store the encrypted WAV envelope") from error
+    embedding_ms = (perf_counter() - embedding_started) * 1000
+    with Image.open(BytesIO(raw_png)) as image:
+        width, height = image.size
+    return WorkflowResult(
+        stego_png,
+        {
+            "file_validation_ms": validation_ms,
+            "scrypt_key_derivation_ms": scrypt_ms,
+            "aes_gcm_encryption_ms": aes_ms,
+            "payload_embedding_ms": embedding_ms,
+            "backend_processing_ms": (perf_counter() - total_started) * 1000,
+        },
+        {
+            "wav_size": len(raw_wav),
+            "cover_image_size": len(raw_png),
+            "stego_image_size": len(stego_png),
+            "image_width": width,
+            "image_height": height,
+            "method": selected_method,
+        },
+    )
 
 
 def recover_wav_from_png(png: Buffer, password: str, method: str) -> bytes:
     """Extract, authenticate, decrypt, and validate WAV bytes from a PNG."""
+    return recover_wav_from_png_timed(png, password, method).data
+
+
+def recover_wav_from_png_timed(
+    png: Buffer, password: str, method: str
+) -> WorkflowResult:
+    """Run recovery once and return WAV bytes with measured backend stages."""
+    total_started = perf_counter()
     selected_method = _require_method(method)
     raw_png = _require_bytes(png, "png")
+    validation_started = perf_counter()
     _validate_png(raw_png)
+    png_validation_ms = (perf_counter() - validation_started) * 1000
 
+    extraction_started = perf_counter()
     encrypted = (
         extract_payload(raw_png)
         if selected_method == "chunk"
         else extract_lsb(raw_png)
     )
-    recovered = decrypt(encrypted, password)
+    extraction_ms = (perf_counter() - extraction_started) * 1000
+    recovered, scrypt_ms, decrypt_ms = decrypt_timed(encrypted, password)
+    wav_validation_started = perf_counter()
     _validate_wav(recovered)
-    return recovered
+    wav_validation_ms = (perf_counter() - wav_validation_started) * 1000
+    with Image.open(BytesIO(raw_png)) as image:
+        width, height = image.size
+    return WorkflowResult(
+        recovered,
+        {
+            "png_validation_ms": png_validation_ms,
+            "payload_extraction_ms": extraction_ms,
+            "scrypt_key_derivation_ms": scrypt_ms,
+            "aes_gcm_decryption_ms": decrypt_ms,
+            "wav_validation_ms": wav_validation_ms,
+            "backend_processing_ms": (perf_counter() - total_started) * 1000,
+        },
+        {
+            "stego_image_size": len(raw_png),
+            "image_width": width,
+            "image_height": height,
+            "method": selected_method,
+        },
+    )

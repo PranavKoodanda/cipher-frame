@@ -1,6 +1,7 @@
 """FastAPI application for the audio-in-image steganography workflow."""
 
 from collections.abc import Callable
+import json
 from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -15,9 +16,12 @@ from backend.app.services.workflow import (
     UnsupportedMethodError,
     hide_wav_in_png,
     recover_wav_from_png,
+    hide_wav_in_png_timed,
+    recover_wav_from_png_timed,
 )
 from backend.app.stego.lsb import LSBError
 from backend.app.stego.png_chunk import PNGChunkError
+from backend.app.utils.pixel_analysis import PixelAnalysisError, compare_png_pixels
 
 app = FastAPI(
     title="Audio Image Steganography API",
@@ -32,6 +36,7 @@ app.add_middleware(
     ],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Accept", "Content-Type"],
+    expose_headers=["Content-Disposition", "X-Workflow-Timings"],
 )
 
 Method = Literal["chunk", "lsb"]
@@ -83,6 +88,48 @@ def _run_workflow(workflow: WorkflowCallable, *args: object) -> bytes:
         UnsupportedMethodError,
         TypeError,
         ValueError,
+        PixelAnalysisError,
+    ) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/analyze")
+async def analyze(
+    original: UploadFile = File(..., description="Original cover PNG"),
+    stego: UploadFile = File(..., description="Encoded stego PNG"),
+    region_x: int = Form(0),
+    region_y: int = Form(0),
+    region_size: int = Form(16),
+) -> dict[str, object]:
+    """Compare decoded cover and stego RGBA pixel buffers."""
+    original_data = await _read_upload(original, "original", MAX_PNG_UPLOAD_SIZE)
+    stego_data = await _read_upload(stego, "stego", MAX_PNG_UPLOAD_SIZE)
+    try:
+        return compare_png_pixels(
+            original_data,
+            stego_data,
+            region_x=region_x,
+            region_y=region_y,
+            region_size=region_size,
+        )
+    except PixelAnalysisError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _run_timed_workflow(workflow: Callable[..., object], *args: object) -> object:
+    try:
+        return workflow(*args)
+    except AuthenticationError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    except (
+        EnvelopeError,
+        InvalidPNGError,
+        InvalidWAVError,
+        LSBError,
+        PNGChunkError,
+        UnsupportedMethodError,
+        TypeError,
+        ValueError,
     ) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -103,17 +150,25 @@ async def hide(
     """Encrypt an uploaded WAV and return a PNG containing the encrypted data."""
     wav_data = await _read_upload(wav, "wav", MAX_WAV_UPLOAD_SIZE)
     image_data = await _read_upload(image, "image", MAX_PNG_UPLOAD_SIZE)
-    stego_png = _run_workflow(
-        hide_wav_in_png,
+    result = _run_timed_workflow(
+        hide_wav_in_png_timed,
         wav_data,
         image_data,
         password,
         method,
     )
+    result_data = result.data
+    timing_header = json.dumps(
+        {"timings": result.timings, "metadata": result.metadata},
+        separators=(",", ":"),
+    )
     return Response(
-        content=stego_png,
+        content=result_data,
         media_type="image/png",
-        headers={"Content-Disposition": 'attachment; filename="stego.png"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="stego.png"',
+            "X-Workflow-Timings": timing_header,
+        },
     )
 
 
@@ -125,14 +180,21 @@ async def recover(
 ) -> Response:
     """Recover and return the decrypted WAV from an uploaded stego PNG."""
     image_data = await _read_upload(image, "image", MAX_PNG_UPLOAD_SIZE)
-    wav_data = _run_workflow(
-        recover_wav_from_png,
+    result = _run_timed_workflow(
+        recover_wav_from_png_timed,
         image_data,
         password,
         method,
     )
+    timing_header = json.dumps(
+        {"timings": result.timings, "metadata": result.metadata},
+        separators=(",", ":"),
+    )
     return Response(
-        content=wav_data,
+        content=result.data,
         media_type="audio/wav",
-        headers={"Content-Disposition": 'attachment; filename="recovered.wav"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="recovered.wav"',
+            "X-Workflow-Timings": timing_header,
+        },
     )

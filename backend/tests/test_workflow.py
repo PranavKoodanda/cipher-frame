@@ -17,6 +17,7 @@ from backend.app.services.workflow import (
 from backend.app.stego.lsb import CapacityError
 from backend.app.stego.png_chunk import embed_payload
 from backend.app.utils.hashing import sha256_hex
+from backend.app.utils.pixel_analysis import compare_png_pixels
 
 
 PASSWORD = "workflow password"
@@ -45,6 +46,49 @@ def test_wav_round_trip_preserves_bytes_and_hash(method: str) -> None:
     recovered = recover_wav_from_png(embedded, PASSWORD, method)
     assert recovered == original
     assert sha256_hex(recovered) == sha256_hex(original)
+
+
+@pytest.mark.parametrize("method", ["chunk", "lsb"])
+def test_encoded_image_pixel_analysis_matches_real_pixels(method: str) -> None:
+    cover = _png()
+    stego = hide_wav_in_png(_wav(), cover, PASSWORD, method)
+    result = compare_png_pixels(cover, stego, region_x=8, region_y=9, region_size=8)
+
+    with Image.open(BytesIO(cover)) as original_image:
+        original_pixels = original_image.convert("RGBA").tobytes()
+    with Image.open(BytesIO(stego)) as stego_image:
+        stego_pixels = stego_image.convert("RGBA").tobytes()
+
+    expected_map = []
+    expected_changed_pixels = 0
+    expected_changed_channels = 0
+    for y in range(256):
+        row = []
+        for x in range(256):
+            offset = (y * 256 + x) * 4
+            differences = [abs(original_pixels[offset + channel] - stego_pixels[offset + channel]) for channel in range(3)]
+            expected_changed_pixels += any(differences)
+            expected_changed_channels += sum(difference > 0 for difference in differences)
+            row.append(max(differences))
+        expected_map.append(row)
+
+    assert result["dimensions_match"] is True
+    assert result["original_pixel_sha256"] == result["stego_pixel_sha256"] if method == "chunk" else result["original_pixel_sha256"] != result["stego_pixel_sha256"]
+    assert result["changed_pixel_count"] == expected_changed_pixels
+    assert result["changed_channel_count"] == expected_changed_channels
+    assert result["difference_map"]["values"] == expected_map
+    assert result["region"]["x"] == 8
+    assert result["region"]["y"] == 9
+    assert result["region"]["size"] == 8
+
+    if method == "chunk":
+        assert result["pixel_equal"] is True
+        assert result["changed_pixel_count"] == 0
+        assert max(map(max, result["difference_map"]["values"])) == 0
+    else:
+        assert result["pixel_equal"] is False
+        assert expected_changed_pixels > 0
+        assert result["max_channel_difference"] == 1
 
 
 def test_invalid_wav_and_png_are_rejected() -> None:
