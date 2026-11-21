@@ -2,227 +2,114 @@
 
 **Secure Audio-in-Image Steganography Workstation**
 
-**Repository:** [github.com/PranavKoodanda/cipher-frame](https://github.com/PranavKoodanda/cipher-frame)
+**Repository:** https://github.com/PranavKoodanda/cipher-frame  
+**Live frontend:** https://audio-image-steganography.vercel.app/ *(backend connectivity depends on deployment configuration)*
 
-🌐 **Live Demo:** [Try it here](https://audio-image-steganography.vercel.app/)
+Cipher Frame is a full-stack educational and technical workstation that **encrypts a PCM WAV audio file and embeds the encrypted payload in a PNG image**, then recovers the audio using the correct password and embedding method. It also provides image forensics to help explain how embedding affects image data.
 
-Cipher Frame is a full-stack application for encrypting a WAV file and hiding
-the encrypted payload inside a PNG image. Combining
-authenticated encryption with steganography protects the audio contents while
-providing a practical image-based carrier; recovery still requires the correct
-password and embedding method.
-
-The project is a working technical utility, not a claim of undetectable
-steganography. Image transformations and steganalysis can affect or reveal
-embedded data.
-
-## Screenshots
-
-### Hide Audio
-
-<p>
-  <img src="docs/screenshots/hide-audio.png" alt="Cipher Frame hide audio interface" width="900">
-</p>
-
-### Recover Audio
-
-<p>
-  <img src="docs/screenshots/recover-audio.png" alt="Cipher Frame recover audio interface" width="900">
-</p>
+> **Security scope:** Encryption provides confidentiality and authenticated tamper detection. Steganography does **not** guarantee undetectability. Changing or re-encoding the carrier image may destroy hidden data.
 
 ## Features
 
-- Encrypts and recovers uncompressed PCM WAV audio.
-- Uses AES-256-GCM authenticated encryption with Scrypt password-based key
-  derivation. Incorrect passwords and tampered encrypted data fail
-  authentication.
-- Supports two embedding methods:
-  - **PNG Chunk:** stores the encrypted envelope in a custom `stEg` ancillary
-    PNG chunk.
-  - **LSB:** embeds the encrypted envelope into RGB pixel least-significant
-    bits.
-- Validates PNG structure, image format, WAV content, payload boundaries, PNG
-  CRCs, and LSB payload checksums.
-- Provides image-quality measurements for RGB/RGBA images, including changed
-  channel counts, channel ratios, mean squared error (MSE), and peak
-  signal-to-noise ratio (PSNR).
-- Includes a React/Vite interface with drag-and-drop file selection, PNG
-  preview, method selection, visible password labels and dark autofill/focus
-  states, API status, validation and API error feedback, loading states, clear
-  success/download actions, and an optional generated-image handoff to Decode.
-- Provides FastAPI endpoints for health checks, hiding, recovery, and exact
-  decoded-pixel analysis.
-- Returns measured backend stage timings and workflow metadata in the
-  `X-Workflow-Timings` response header while preserving binary PNG/WAV
-  responses. The frontend keeps encoding and decoding measurements separately.
-- Provides a responsive four-panel workbench with independent task and results
-  columns. Forms remain compact without equal-height stretching, while the
-  wider analysis column provides summary-first RGB/red/green/blue/grayscale
-  histograms, accurate axes and legends, a collapsed-by-default difference
-  map, synchronized cover/stego pixel inspection, exact RGBA statistics, and
-  decoded-pixel SHA-256 hashes. Empty and unavailable analysis controls remain
-  visibly disabled until a comparison exists.
-- Uses a compact glanceable workbench layout: Encode and Decode actions stay
-  together in the task rail, while comparison summary metrics, visual analysis,
-  and separate encode/decode timing summaries occupy the results rail. The
-  comparison summary reports exact pixel equality or change status, changed
-  pixel percentage, MSE, and PSNR; it is an image-quality indicator, not proof
-  of steganographic undetectability.
-- Limits each uploaded WAV and PNG file to 20 MiB by default and reads uploads
-  incrementally before workflow processing.
+### Secure embedding and recovery
+- **AES-256-GCM** authenticated encryption with a fresh random salt and nonce per operation.
+- **Scrypt** password-based key derivation.
+- Two embedding methods:
+  - **PNG Custom Chunk:** stores the encrypted envelope in a custom `stEg` PNG chunk before `IEND`, without modifying decoded image pixels.
+  - **LSB:** stores encrypted bits in the least-significant bits of RGB pixel channels; image capacity depends on dimensions and payload size.
+- Decode & Recover workflow extracts and authenticates the encrypted payload, then downloads the original WAV.
+- Workbench shortcut to reuse a newly generated stego PNG in Decode; the password must be entered again.
+- Input validation, authentication failure handling, payload integrity checks, and upload size limits (20 MiB per WAV/PNG file by default).
+
+### Six-page forensic workstation
+| Page | Purpose |
+| --- | --- |
+| **Workbench** | Upload WAV + cover PNG, choose PNG Chunk/LSB, encrypt and embed, inspect execution status, download the stego PNG. |
+| **Histogram Analysis** | Inspect individual RGB/grayscale distributions or compare cover and stego histograms; review measured image differences. |
+| **Pixel Lab** | Inspect actual RGBA values in the same 8×8, 16×16, or 32×32 region of cover/stego images, including per-pixel change indicators. |
+| **Decode & Recover** | Upload a stego PNG, select its method, enter the password, and recover a WAV; optionally provide the original cover for comparison. |
+| **Performance** | View backend processing-stage timings and frontend elapsed-time measurements. |
+| **Run History** | Review locally stored metadata about completed and failed operations. |
+
+### Image analysis
+- **Single-image mode:** actual RGB/grayscale histograms and pixel inspection remain available with just one PNG.
+- **Two-image mode:** compares decoded RGBA image data, RGB histogram distributions, pixel equality/changes, selected regions, image-quality metrics, and decoded-pixel hashes.
+- **Difference map lives in Histogram Analysis:** per-pixel maximum absolute RGB-channel difference, on an actual **0–255** scale.
+- **Optional visual amplification:** 1× (actual), 10×, or 50× display brightness, using `min(255, D × factor)`; changing the visual factor never changes the measured differences, MSE, PSNR, or changed-pixel counts.
+- **Pixel Lab** retains the detailed original/stego pixel matrices rather than duplicating the full-image difference map.
+- PNG Chunk should preserve decoded pixels (zero pixel difference). LSB commonly modifies low-order RGB channel values; image-quality metrics are **not evidence of steganographic undetectability**.
 
 ## How it works
 
-1. Select a WAV file and a PNG cover image.
-2. Choose **PNG Chunk** or **LSB**.
-3. Enter a password.
-4. The backend validates the inputs, encrypts the WAV, and embeds the
-   authenticated envelope in the PNG.
-5. Download the resulting stego PNG.
-6. Upload that PNG later with the same password and embedding method to recover
-   the WAV.
-
 ```mermaid
 flowchart LR
-    UI["React / Vite frontend"] -->|multipart upload| API["FastAPI API"]
-    API --> WF["Workflow service"]
-    WF --> CRYPTO["AES-GCM + Scrypt"]
-    WF --> STEGO["PNG Chunk or LSB modules"]
-    STEGO -->|stego PNG / recovered WAV| API
+    A[WAV + cover PNG + password] --> B[Validate inputs]
+    B --> C[Scrypt key derivation]
+    C --> D[AES-256-GCM encrypt WAV]
+    D --> E{Embedding method}
+    E -->|PNG Chunk| F[Insert stEg chunk]
+    E -->|LSB| G[Write encrypted bits into RGB LSBs]
+    F --> H[Download stego PNG]
+    G --> H
+    H --> I[Upload stego PNG + method + password]
+    I --> J[Extract and authenticate]
+    J --> K[Download recovered WAV]
 ```
 
-## Embedding methods
-
-| Method | Storage model | Practical considerations |
+### Method comparison
+| Aspect | PNG Custom Chunk | LSB |
 | --- | --- | --- |
-| PNG Chunk | Stores the encrypted payload in a custom `stEg` chunk immediately before `IEND`. | Preserves decoded pixels and has direct byte capacity, but services that strip unknown ancillary chunks can remove the payload. |
-| LSB | Stores payload bits in RGB pixel channels; alpha is not modified. | Capacity depends on image dimensions and encrypted payload size. Resizing, recompression, or re-encoding can damage the payload. |
+| Data location | `stEg` ancillary chunk before `IEND` | RGB channel least-significant bits |
+| Decoded pixels | Unchanged | May change slightly |
+| Capacity | Depends on file/container handling | Depends on pixel count and envelope length |
+| Main fragility | Chunk-stripping or file processing | Resizing, re-encoding, recompression and pixel modification |
+| Detectability | Custom chunk may be inspected | Statistical steganalysis may detect modifications |
 
-Neither method guarantees that hidden data is undetectable or resistant to
-steganalysis. The encrypted envelope remains the security boundary for
-confidentiality and tamper detection.
+## Architecture and technology
 
-## Analysis and performance measurements
-
-The workbench compares the cover and generated stego image using actual
-decoded RGBA values. It can display side-by-side percentage histograms, a
-difference view, selected pixel values, a bounded spatial difference map,
-changed-pixel statistics, MSE, PSNR, and hashes of decoded pixel buffers.
-Identical decoded buffers produce zero MSE and infinite PSNR. These are
-image-quality indicators, not proof of security or undetectability.
-
-The backend measures validation, Scrypt, AES-GCM, extraction/embedding, and
-total processing stages with `time.perf_counter()`. The browser measures
-operation duration with `performance.now()`. The workbench presents server
-processing and total browser elapsed time as separate summaries; they are not
-added together. Timing metadata is exposed through CORS in
-`X-Workflow-Timings`; the endpoint response bodies remain binary files.
-
-## Technology stack
-
-### Frontend
-
-- React 19
-- Vite
-- Plain CSS with the Nebula Core dark workbench theme
-
-### Backend and API
-
-- Python 3.13 (currently tested environment)
-- FastAPI
-- Uvicorn
-- `python-multipart` for multipart form handling
-
-### Cryptography
-
-- `cryptography`
-- AES-GCM
-- Scrypt
-
-### Image processing
-
-- Pillow for PNG decoding, RGB/RGBA LSB operations, and image metrics
-- Custom byte-level PNG chunk parsing for `stEg` payloads
-
-### Testing
-
-- pytest
-- HTTPX/FastAPI `TestClient` support
-
-## Project structure
+- **Frontend:** React 19, Vite 6, plain CSS; Vitest and React Testing Library.
+- **Backend:** Python, FastAPI, Uvicorn, `python-multipart`.
+- **Cryptography:** `cryptography` library, AES-256-GCM, Scrypt.
+- **Image analysis:** Pillow and custom PNG chunk handling.
+- **Testing:** pytest (backend), Vitest (frontend).
 
 ```text
-.
+cipher-frame/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                 # FastAPI application and API routes
-│   │   ├── core/
-│   │   │   ├── crypto.py           # AES-GCM and Scrypt
-│   │   │   ├── envelope.py         # Versioned encrypted envelope
-│   │   │   └── validation.py       # Shared input validation
-│   │   ├── services/
-│   │   │   └── workflow.py         # End-to-end WAV workflows
-│   │   ├── stego/
-│   │   │   ├── png_chunk.py        # PNG stEg chunk embedding
-│   │   │   └── lsb.py              # RGB/RGBA LSB embedding
-│   │   └── utils/
-│   │       ├── hashing.py          # SHA-256 helpers
-│   │       ├── image_metrics.py    # MSE, PSNR, and channel metrics
-│   │       └── pixel_analysis.py   # Exact RGBA comparison and visual data
+│   │   ├── core/                 # encryption, envelope, validation
+│   │   ├── services/             # hide/recover workflow
+│   │   ├── stego/                # PNG Chunk and LSB algorithms
+│   │   ├── utils/                # hashing, image metrics, pixel analysis
+│   │   └── main.py               # FastAPI endpoints
 │   ├── tests/
-│   │   ├── test_api.py
-│   │   ├── test_crypto.py
-│   │   ├── test_lsb.py
-│   │   ├── test_png_chunk.py
-│   │   ├── test_pixel_analysis.py
-│   │   └── test_workflow.py
-│   ├── README.md
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                 # Hide/recover workbench UI
-│   │   ├── api.js                  # FastAPI client and error handling
-│   │   ├── main.jsx                # React entry point
-│   │   └── styles.css              # Nebula Core visual system
-│   ├── index.html
+│   │   ├── App.jsx               # six-page workstation
+│   │   ├── api.js                # FastAPI client
+│   │   ├── differenceMap.js      # visual amplification helper
+│   │   ├── singleImageAnalysis.js# client-side single-PNG analysis
+│   │   └── styles.css            # dark forensic theme
 │   ├── package.json
-│   ├── package-lock.json
-│   └── vite.config.js              # Vite config and /api proxy
-├── .github/
-│   └── copilot-instructions.md
+│   └── vite.config.js
 └── README.md
 ```
 
-Generated directories such as `frontend/node_modules`, `frontend/dist`,
-Python virtual environments, bytecode caches, and test caches are omitted from
-the structure above.
+## Run locally (Windows PowerShell)
 
-## Setup and running locally
-
-### Backend
-
-From the repository root in Windows PowerShell:
+**1. Start the backend from the repository root**
 
 ```powershell
 python -m venv backend\.venv
 .\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-.\backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 9000
+.\backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 9000
 ```
 
-The frontend's Vite proxy is configured for
-`http://127.0.0.1:9000`. FastAPI's
-interactive documentation is available at
-`http://127.0.0.1:9000/docs`.
+API health: http://127.0.0.1:9000/api/health  
+Interactive API docs: http://127.0.0.1:9000/docs
 
-The API accepts browser requests from the deployed frontend
-(`https://audio-image-steganography.vercel.app`) and the Vite development
-origins `http://localhost:5173` and `http://127.0.0.1:5173`. CORS is limited
-to the API's GET, POST, and OPTIONS methods and the request headers used by the
-frontend; other origins are not permitted.
-
-### Frontend
-
-Open a second PowerShell terminal:
+**2. Start the frontend in a second terminal**
 
 ```powershell
 cd frontend
@@ -230,122 +117,57 @@ npm install
 npm run dev
 ```
 
-Vite serves the frontend at its default URL,
-`http://localhost:5173`. The Vite development server proxies relative `/api`
-requests to `http://127.0.0.1:9000`.
+Vite normally runs at http://localhost:5173 and proxies `/api` to `http://127.0.0.1:9000` in development. To target a different deployed API, configure `VITE_API_BASE_URL` in `frontend/.env` (do not store passwords there).
 
-For deployments or a different backend location, set `VITE_API_BASE_URL` in
-`frontend\.env`:
+## API endpoints
 
-```text
-VITE_API_BASE_URL=https://example.invalid
-```
-
-When set, the frontend uses that absolute base URL directly instead of the
-Vite development proxy. Do not put passwords in environment variables,
-browser storage, URLs, or logs.
-
-## API reference
-
-All file endpoints use `multipart/form-data`. The accepted embedding methods
-are `chunk` and `lsb`.
-
-### `GET /api/health`
-
-Returns HTTP `200` with:
-
-```json
-{"status": "ok"}
-```
-
-### `POST /api/hide`
-
-Multipart fields:
-
-| Field | Type | Description |
+| Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `wav` | file | Non-empty, uncompressed PCM WAV input. Maximum 20 MiB. |
-| `image` | file | Valid PNG cover image. Maximum 20 MiB. |
-| `password` | text | Password used for AES-GCM encryption. |
-| `method` | text | `chunk` or `lsb`. |
+| GET | `/api/health` | API availability (`{"status":"ok"}`) |
+| POST | `/api/hide` | Upload `wav`, `image`, `password`, `method` (`chunk` / `lsb`); return `image/png` |
+| POST | `/api/recover` | Upload `image`, `password`, `method`; return `audio/wav` |
+| POST | `/api/analyze` | Upload `original`, `stego`, optionally `region_x`, `region_y`, `region_size`; return RGBA comparison and analysis JSON |
 
-Returns HTTP `200` with `image/png` and a downloadable `stego.png`.
+`/api/hide` and `/api/recover` return measured stage data in `X-Workflow-Timings`. Invalid input and out-of-bounds regions yield controlled errors; incorrect password/authentication failure is reported separately. Refer to FastAPI `/docs` for current request schemas.
 
-### `POST /api/recover`
+## Testing and verified results
 
-Multipart fields:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `image` | file | PNG containing the encrypted payload. Maximum 20 MiB. |
-| `password` | text | Password used for authenticated decryption. |
-| `method` | text | The same method used during hiding: `chunk` or `lsb`. |
-
-Returns HTTP `200` with `audio/wav` and a downloadable `recovered.wav`.
-
-### `POST /api/analyze`
-
-Multipart fields are `original` and `stego` PNG files. Optional form fields
-`region_x`, `region_y`, and `region_size` select an 8 × 8, 16 × 16, or 32 × 32
-region. The endpoint compares canonical RGBA buffers without compositing
-transparent pixels and returns exact integrity statistics, percentage
-histograms, selected region values, and a bounded difference map. It returns
-`400` for invalid PNGs or invalid region coordinates; mismatched image
-dimensions are reported as unavailable for exact comparison.
-
-### Error responses
-
-- `400 Bad Request`: invalid WAV/PNG data, malformed payloads, unsupported
-  workflow inputs, insufficient LSB capacity, or other workflow validation
-  failures.
-- `401 Unauthorized`: incorrect password or authenticated payload failure.
-- `413 Payload Too Large`: a WAV or PNG upload exceeds its 20 MiB limit.
-- `422 Unprocessable Entity`: required multipart fields are missing or the
-  `method` value is not one of the accepted literals.
-
-The API returns controlled error messages and does not expose stack traces.
-
-## Testing
-
-Run the backend tests from the repository root:
+From the repository root:
 
 ```powershell
-python -m pytest backend\tests -q
-```
-
-Build the frontend production bundle:
-
-```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend\tests
 cd frontend
+npm test -- --run
 npm run build
 ```
 
-The last verified results were **51 passing backend tests**, with one existing
-Starlette multipart deprecation warning, and a successful frontend production
-build. These are recorded results, not a guarantee for future changes.
+**Latest user-reported local verification (November 2026):**
 
-## Security notes and limitations
+| Check | Result |
+| --- | --- |
+| Backend pytest | **54 passed**; one Starlette/httpx deprecation warning |
+| Frontend Vitest | **27 passed** across 3 test files |
+| Vite production build | **Successful** |
+| Total automated tests | **81 passed** |
 
-- AES-256-GCM authentication rejects incorrect passwords and tampered
-  encrypted data. PNG CRC-32 and the LSB checksum detect structural or
-  accidental corruption but are not substitutes for authenticated encryption.
-- Recovery requires the same embedding method used during hiding.
-- LSB capacity is limited by image dimensions and the size of the encrypted
-  envelope.
-- Resizing, recompression, re-encoding, conversion, or image services that
-  remove ancillary chunks can destroy hidden data.
-- The project does not guarantee that embedded data is undetectable or
-  resistant to steganalysis.
-- Users must retain the password; it is not stored in the PNG or by the
-  application.
-- Uploads are read and processed in memory. Before exposing the API to
-  untrusted users, deploy it with appropriate resource limits, access
-  controls, monitoring, and HTTPS.
+These are recorded local results, not a guarantee about every environment or a separately verified deployed system.
 
-## Future improvements
+## Security and operational limitations
 
-- Add frontend behavior tests.
-- Add production deployment guidance, including a hardened reverse proxy and
-  operational resource controls.
-- Add optional capacity and image-quality information to the user interface
-  before an LSB operation.
+1. The password and embedding method are required to recover the payload; passwords are not persisted in Run History.
+2. AES-GCM authenticates encrypted content; a PNG CRC or LSB checksum is not a cryptographic substitute for it.
+3. PNG transformations, ancillary-chunk stripping, recompression, and resizing may break recovery.
+4. LSB capacity is finite; an encrypted WAV may exceed the selected carrier's capacity.
+5. Histogram similarity, MSE and PSNR do not establish resistance to steganalysis.
+6. Browser Run History stores operation metadata locally; it is not a server-side audit log.
+7. Production deployment should include HTTPS, access control, resource limits and operational monitoring.
+
+## Documentation and screenshots
+
+For an academic submission, add current screenshots of the six workstation pages to `docs/screenshots/` and link them here. Older screenshot paths from the previous interface should not be presented as current visuals.
+
+## Future work
+
+- Controlled deployment and reproducible container setup.
+- Improved usability and accessibility testing with representative real-world image/audio inputs.
+- Optional steganalysis and capacity-estimation modules, clearly separated from cryptographic security guarantees.
