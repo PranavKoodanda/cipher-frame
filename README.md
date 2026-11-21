@@ -3,7 +3,7 @@
 **Secure Audio-in-Image Steganography Workstation**
 
 **Repository:** https://github.com/PranavKoodanda/cipher-frame  
-**Live frontend:** https://audio-image-steganography.vercel.app/ *(backend connectivity depends on deployment configuration)*
+**Live frontend:** https://audio-image-steganography.vercel.app/
 
 Cipher Frame is a full-stack educational and technical workstation that **encrypts a PCM WAV audio file and embeds the encrypted payload in a PNG image**, then recovers the audio using the correct password and embedding method. It also provides image forensics to help explain how embedding affects image data.
 
