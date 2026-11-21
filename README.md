@@ -21,6 +21,26 @@ Cipher Frame is a full-stack educational and technical workstation that **encryp
 - Workbench shortcut to reuse a newly generated stego PNG in Decode; the password must be entered again.
 - Input validation, authentication failure handling, payload integrity checks, and upload size limits (20 MiB per WAV/PNG file by default).
 
+## Application Screenshots
+
+### Workbench
+![Workbench](docs/screenshots/01-workbench.png)
+
+### Histogram Analysis
+![Histogram Analysis](docs/screenshots/02-histogram-analysis.png)
+
+### Pixel Lab
+![Pixel Lab](docs/screenshots/03-pixel-lab.png)
+
+### Decode & Recover
+![Decode & Recover](docs/screenshots/04-decode-recover.png)
+
+### Performance
+![Performance](docs/screenshots/05-performance.png)
+
+### Run History
+![Run History](docs/screenshots/06-run-history.png)
+
 ### Six-page forensic workstation
 | Page | Purpose |
 | --- | --- |
